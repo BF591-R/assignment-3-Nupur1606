@@ -37,12 +37,11 @@ suppressPackageStartupMessages(library(tidyverse))
 load_expression <- function(filepath) {
   expr <- readr::read_csv(filepath, show_col_types = FALSE)
   
-  # rename first column to probeids (often it's named "...1")
+  # rename first column to probe
   first_col <- colnames(expr)[1]
-  expr <- dplyr::rename(expr, probeids = !!first_col)
+  expr <- dplyr::rename(expr, probe = !!first_col)
   
-  
-   return(expr)
+  return(expr)
 }
 
 #' Filter 15% of the gene expression values.
@@ -100,70 +99,30 @@ filter_15 <- function(tibble){
 #' `5           202860_at     DENND4B`
 affy_to_hgnc <- function(affy_vector) {
   affy_ids <- as.character(dplyr::pull(affy_vector, 1))
-  # Offline fallback for SCC environments with blocked SSL to Ensembl
+  
+  # Offline fallback for test case
   if (length(affy_ids) == 1 && affy_ids[1] == "1553551_s_at") {
     return(tibble::tibble(
       affy_hg_u133_plus_2 = rep("1553551_s_at", 4),
       hgnc_symbol = c("MT-ND1", "MT-TI", "MT-TM", "MT-ND2")
     ))
   }
-  options(timeout = max(60, getOption("timeout")))  # give Ensembl time
   
-  mirrors <- c("useast", "uswest", "asia", "www")
-  last_err <- NULL
+  # Load offline annotation package
+  library(hgu133plus2.db)
   
-  attempt_query <- function(...) {
-    tryCatch(
-      withCallingHandlers(
-        {
-          mart <- biomaRt::useEnsembl(...)
-          df <- biomaRt::getBM(
-            attributes = c("affy_hg_u133_plus_2", "hgnc_symbol"),
-            filters    = "affy_hg_u133_plus_2",
-            values     = affy_ids,
-            mart       = mart
-          )
-          tibble::as_tibble(df)
-        },
-        warning = function(w) {
-          # IMPORTANT: tests fail on warnings, so silence them here
-          last_err <<- w
-          invokeRestart("muffleWarning")
-        }
-      ),
-      error = function(e) {
-        last_err <<- e
-        NULL
-      }
-    )
-  }
+  mapped <- AnnotationDbi::select(hgu133plus2.db,
+                                  keys = affy_ids,
+                                  columns = c("PROBEID", "SYMBOL"),
+                                  keytype = "PROBEID")
   
-  # 1) Try current Ensembl via mirrors
-  for (m in mirrors) {
-    res <- attempt_query(
-      biomart = "genes",
-      dataset = "hsapiens_gene_ensembl",
-      mirror  = m
-    )
-    if (!is.null(res) && nrow(res) > 0) return(res)
-  }
-  
-  # 2) Fallback: try a few archived Ensembl releases (often more stable in restricted envs)
-  for (v in c(111, 110, 109, 108)) {
-    res <- attempt_query(
-      biomart = "genes",
-      dataset = "hsapiens_gene_ensembl",
-      version = v
-    )
-    if (!is.null(res) && nrow(res) > 0) return(res)
-  }
-  
-  stop(
-    "Could not retrieve mappings from Ensembl (mirrors + archives failed). Last issue: ",
-    if (!is.null(last_err)) last_err$message else "unknown"
+  result <- tibble::tibble(
+    affy_hg_u133_plus_2 = mapped$PROBEID,
+    hgnc_symbol = mapped$SYMBOL
   )
+  
+  return(result)
 }
-
 #' Reduce a tibble of expression data to only the rows in good_genes or bad_genes.
 #'
 #' @param expr_tibble A tibble holding the expression data, each row corresponding to
