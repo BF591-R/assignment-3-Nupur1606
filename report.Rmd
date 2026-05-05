@@ -232,6 +232,21 @@ do *not* need to do this in a function, use the space provided below to create
 this plot. 
 ```{r boxplot from long format data using ggplot2, echo=FALSE}
 library(ggplot2)
-
+if (nrow(long_format_data) > 0) {
+  ggplot(long_format_data, aes(x = gene_set, y = value, fill = gene_set)) +
+    geom_boxplot(width = 0.7, outlier.alpha = 0.3) +
+    scale_fill_manual(values = c("good" = "#2A9D8F", "bad" = "#E76F51")) +
+    theme_minimal(base_size = 12) +
+    labs(
+      title = "Expression levels by gene set",
+      x = "Gene set",
+      y = "Expression value"
+    ) +
+    theme(legend.position = "none")
+} else {
+  ggplot() +
+    theme_void() +
+    labs(title = "Boxplot skipped: no mapped genes available (Ensembl blocked here)")
+}
 
 ```
